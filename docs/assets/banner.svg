@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="420" viewBox="0 0 1280 420" role="img" aria-labelledby="title desc">
+  <title id="title">观赛搭子 · LoL Worlds Watch Buddy</title>
+  <desc id="desc">原创项目介绍与玩法示意：同步官方赛程，手动设置赔率，为主队预测，和朋友比拼虚拟积分。</desc>
+  <defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#172019"/><stop offset="1" stop-color="#0c1017"/></linearGradient><pattern id="grid" width="34" height="34" patternUnits="userSpaceOnUse"><path d="M34 0H0V34" fill="none" stroke="#c5f16d" stroke-opacity=".035"/></pattern></defs>
+  <rect width="1280" height="420" rx="22" fill="url(#bg)"/>
+  <rect width="1280" height="420" rx="22" fill="url(#grid)"/>
+  <rect x="38" y="38" width="48" height="48" rx="12" fill="#c5f16d"/>
+  <path d="M50 72V52h6l12 12V52h6v20h-6L56 60v12z" fill="#15200f"/>
+  <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+    <text x="101" y="59" fill="#f2f3f5" font-size="16" font-weight="800" letter-spacing="2">NEXUS PICKS</text>
+    <text x="101" y="80" fill="#879785" font-size="11" letter-spacing="2">LEAGUE OF LEGENDS · FRIENDS · RIVALRY</text>
+    <text x="39" y="153" fill="#f2f3f5" font-size="50" font-weight="750">观赛搭子</text>
+    <text x="270" y="150" fill="#c5f16d" font-size="29" font-weight="600">为主队站队，和搭子比眼光。</text>
+    <text x="41" y="194" fill="#9aac99" font-size="19">LoL Worlds Watch Buddy · Pick’em for friends</text>
+    <rect x="1030" y="46" width="206" height="33" rx="8" fill="#26351b" stroke="#425632"/>
+    <text x="1133" y="68" fill="#c5f16d" font-size="12" text-anchor="middle" letter-spacing="1">LOCAL FIRST · MIT LICENSE</text>
+    <g transform="translate(40 245)">
+      <rect width="268" height="101" rx="13" fill="#151c22" stroke="#34432c"/>
+      <text x="18" y="30" fill="#829371" font-size="11" letter-spacing="2">01 / OFFICIAL SCHEDULE</text>
+      <text x="18" y="59" fill="#edf2e8" font-size="20" font-weight="650">同步官方赛程</text>
+      <text x="18" y="81" fill="#82907f" font-size="12">按日期预览，选择想看的比赛</text>
+    </g>
+    <g transform="translate(350 245)">
+      <rect width="268" height="101" rx="13" fill="#151c22" stroke="#34432c"/>
+      <text x="18" y="30" fill="#829371" font-size="11" letter-spacing="2">02 / YOUR OWN ODDS</text>
+      <text x="18" y="59" fill="#edf2e8" font-size="20" font-weight="650">你们设置赔率</text>
+      <text x="18" y="81" fill="#82907f" font-size="12">自由约定，提交时锁定赔率</text>
+    </g>
+    <g transform="translate(660 245)">
+      <rect width="268" height="101" rx="13" fill="#151c22" stroke="#34432c"/>
+      <text x="18" y="30" fill="#829371" font-size="11" letter-spacing="2">03 / BACK YOUR TEAM</text>
+      <text x="18" y="59" fill="#edf2e8" font-size="20" font-weight="650">为自己的主队站队</text>
+      <text x="18" y="81" fill="#82907f" font-size="12">一人一份积分，好友一起预测</text>
+    </g>
+    <g transform="translate(970 245)">
+      <rect width="268" height="101" rx="13" fill="#202d18" stroke="#526d37"/>
+      <text x="18" y="30" fill="#a6c38a" font-size="11" letter-spacing="2">04 / FRIENDLY RIVALRY</text>
+      <text x="18" y="59" fill="#c5f16d" font-size="20" font-weight="650">和搭子一起比眼光</text>
+      <text x="18" y="81" fill="#9caf8e" font-size="12">确认赛果，积分自动结算</text>
+    </g>
+    <path d="M321 296h15m-5-5 5 5-5 5M631 296h15m-5-5 5 5-5 5M941 296h15m-5-5 5 5-5 5" fill="none" stroke="#61734d" stroke-width="2"/>
+    <text x="42" y="389" fill="#657361" font-size="12">虚拟积分 · 无现金价值 · Python 标准库零依赖 · 当前支持同一台电脑双人轮流使用</text>
+  </g>
+</svg>
