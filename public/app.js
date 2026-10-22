@@ -57,6 +57,7 @@ let activeId = 'p1';
 try { activeId = localStorage.getItem('nexus-active-player') === 'p2' ? 'p2' : 'p1'; } catch (_) {}
 let filter = 'all', betFilter = 'all', busy = false, modal = null, modalTrigger = null, toastTimer, online = true;
 let serverOffset = 0, lastTimeKey = '', scheduleDate = 'all', searchTerm = '', onlyFavorite = false;
+let refreshRequest = 0;
 const me = () => state.players.find(p => p.id === activeId);
 const matchById = id => state.matches.find(m => m.id === id);
 const effectiveStatus = m => m.status === 'open' && Date.parse(m.starts_at) <= Date.now() + serverOffset ? 'locked' : m.status;
@@ -170,19 +171,24 @@ function showReset() {
 }
 
 async function refresh(force=false) {
+  const request = ++refreshRequest;
   try {
     const response=await fetch('/api/state',{cache:'no-store',signal:AbortSignal.timeout(8000)});
     if(!response.ok)throw new Error();
-    const incoming=await response.json(), changed=!state||incoming.revision!==state.revision||!online;
+    const incoming=await response.json();
+    if(request!==refreshRequest)return;
+    const changed=!state||incoming.revision!==state.revision||!online;
     state=incoming;serverOffset=Date.parse(state.server_time)-Date.now();online=true;
     if(changed||force)render();
   } catch (_) {
+    if(request!==refreshRequest)return;
     if(online){online=false;if(state)render();else $('#app').innerHTML='<div class="boot"><p>本地服务未连接。请运行「启动观赛搭子.command」，然后刷新此页。</p></div>';}
   }
 }
 async function mutate(action,payload,success) {
   if(busy)return false;
   busy=true;
+  ++refreshRequest;
   $$('.modal button, button[type="submit"]').forEach(b=>b.disabled=true);
   try {
     const response=await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json','X-Nexus-Local':'1'},body:JSON.stringify({action,payload}),signal:AbortSignal.timeout(action==='sync_schedule'?45000:15000)});
@@ -191,7 +197,7 @@ async function mutate(action,payload,success) {
     state=data;serverOffset=Date.parse(data.server_time)-Date.now();online=true;
     closeModal();
     if(['place_bet','reset_season','import_backup'].includes(action))selected=null;
-    render();toast(action==='sync_schedule'?(data.sync_result?.message||`已导入 ${data.sync_result?.added??0} 场比赛，请手动设置赔率。`):(success||'已保存。'));return true;
+    render();toast(action==='sync_schedule'?`新增 ${data.sync_result?.added??0} 场，更新 ${data.sync_result?.updated??0} 场，跳过 ${data.sync_result?.skipped??0} 场；人工赔率保留。`:(success||'已保存。'));return true;
   } catch(error) {
     const message=error.name==='TimeoutError'||error.name==='TypeError'?'连接中断，请保持启动窗口开启。正在核对本机数据，可稍后重试。':error.message;
     const errorTarget=$('#modal-error')||$('#settings-error');
@@ -334,20 +340,20 @@ function renderManage() {
   return `<div class="workflow-strip"><div><span>01</span><strong>同步官方赛程</strong><small>按日期挑选对局</small></div>${icon('chevron',14)}<div><span>02</span><strong>亲自设置赔率</strong><small>${setup?`${setup} 场待设置`:'不自动生成赔率'}</small></div>${icon('chevron',14)}<div><span>03</span><strong>赛后确认结果</strong><small>积分自动结算</small></div></div><div class="info-strip">${icon('shield',16)}同步只获取对阵、时间与赛制，不设置赔率，也不自动结算。已有预测始终按提交时的赔率结算。${state.matches.some(m=>m.demo)?'<button class="text-button" data-action="clear-examples">移除旧版示例</button>':''}</div>${matches.length?`<div class="table-wrap"><table><thead><tr><th>对阵 / 来源</th><th>开赛时间 · UTC+8</th><th>赔率 A / B</th><th>状态</th><th>预测人数</th><th>管理</th></tr></thead><tbody>${matches.map(m=>{const s=effectiveStatus(m),n=state.bets.filter(b=>b.match_id===m.id&&b.status!=='cancelled').length;return `<tr><td><strong>${esc(m.team_a)} <span class="muted">vs</span> ${esc(m.team_b)}</strong><small>${esc(m.stage)} · ${esc(m.format)}</small><div class="manage-source">${sourceCaption(m)}</div></td><td class="mono">${esc(dateTime(m.starts_at))}</td><td class="mono">${readyOdds(m)?`${odds(m.odds_a)} <span class="muted">/</span> ${odds(m.odds_b)}`:'<span class="odds-pending-label">待设置</span>'}</td><td>${statusHtml(m)}${m.winner?`<small class="positive">${esc(m['team_'+m.winner])} 胜</small>`:''}</td><td>${n} / 2</td><td><div class="table-actions">${['open','locked'].includes(s)?`<button class="small-button ${!readyOdds(m)?'emphasis':''}" data-edit-match="${m.id}">${readyOdds(m)?'编辑':'设置赔率'}</button><button class="small-button" data-lock-match="${m.id}" ${s==='locked'&&Date.parse(m.starts_at)<=Date.now()+serverOffset?'disabled':''}>${s==='open'?'封盘':'开放'}</button><button class="small-button" data-settle-match="${m.id}">结算</button><button class="small-button warn" data-void-match="${m.id}">取消比赛</button>`:`<button class="small-button warn" data-undo-match="${m.id}">撤销结算</button>`}</div></td></tr>`;}).join('')}</tbody></table></div>`:renderMatchGroups([])}`;
 }
 function showScheduleSync() {
-  openModal('同步官方赛程',`<div class="sync-intro"><span class="sync-source">${icon('shield',14)}lpl.qq.com 官方赛程</span><p>选择比赛日期，预览后勾选想加入房间的对局。导入后由你设置赔率。</p></div><form id="sync-form"><div class="sync-date-row"><div class="form-group"><label for="sync-date">比赛日期 · 北京时间 UTC+8</label><input id="sync-date" name="date" type="date" value="${scheduleDate==='all'?todayKey():scheduleDate}" required></div><button class="secondary-button" type="submit" id="sync-fetch">${icon('refresh',14)}获取赛程</button></div></form><div id="sync-preview"><div class="sync-placeholder">${icon('calendar',24)}<span>先选择日期并获取官方赛程</span><small>未公布赛程时会返回错误，不使用示例数据填补。</small></div></div>`,`${modalCancel}<button class="primary-button" id="sync-import" data-action="sync-import" disabled>导入所选比赛</button>`,'sync');
+  openModal('同步官方赛程',`<div class="sync-intro"><span class="sync-source">${icon('shield',14)}lpl.qq.com 官方赛程</span><p>选择比赛日期，预览后勾选想加入房间的对局。导入后由你设置赔率。</p></div><form id="sync-form"><div class="sync-date-row"><div class="form-group"><label for="sync-date">比赛日期 · 北京时间 UTC+8</label><input id="sync-date" name="date" type="date" value="${scheduleDate==='all'?todayKey():scheduleDate}" required></div><button class="secondary-button" type="submit" id="sync-fetch">${icon('refresh',14)}获取赛程</button></div></form><div id="sync-preview"><div class="sync-placeholder">${icon('calendar',24)}<span>先选择日期并获取官方赛程</span><small>未公布赛程时会返回错误，不使用示例数据填补。</small></div></div>`,`${modalCancel}<button class="primary-button" id="sync-import" data-action="sync-import" disabled>导入或更新所选比赛</button>`,'sync');
   modal.results=[];modal.loadedDate=null;
 }
 function syncImportCount() {
   const count=$$('[data-source-id]:checked', $('#modal-root')).length;
-  const button=$('#sync-import');if(button){button.disabled=!count||busy;button.textContent=count?`导入 ${count} 场比赛`:'导入所选比赛';}
+  const button=$('#sync-import');if(button){button.disabled=!count||busy;button.textContent=count?`导入或更新 ${count} 场比赛`:'导入或更新所选比赛';}
   const options=$$('[data-source-id]:not(:disabled)', $('#modal-root')),all=$('#sync-all');if(all){all.checked=options.length>0&&count===options.length;all.indeterminate=count>0&&count<options.length;}
 }
 function officialStarted(m) {
   return Date.parse(m.starts_at)<=Date.now()+serverOffset||['ongoing','finished'].includes(m.source_status);
 }
 function syncResultsHtml(data) {
-  const items=data.matches, canChoose=items.filter(m=>!m.existing_id).length;
-  return `${data.warnings?.length?`<div class="sync-warnings">${data.warnings.map(w=>`<p>${icon('info',12)}${esc(w)}</p>`).join('')}</div>`:''}<div class="sync-result-heading"><strong>${esc(dayLabel(data.date))}<small>${items.length} 场官方对局</small></strong><label class="select-all"><input id="sync-all" type="checkbox" ${!canChoose?'disabled':''}>全选未导入</label></div><div class="sync-match-list">${items.map(m=>{const imported=Boolean(m.existing_id),started=officialStarted(m);return `<label class="sync-match-row ${imported?'already-imported':''}"><input type="checkbox" data-source-id="${esc(m.source_id)}" ${imported?'disabled':!started?'checked':''}><div class="sync-match-details"><div><strong>${esc(m.team_a)} <span>vs</span> ${esc(m.team_b)}</strong><span class="sync-row-state ${imported?'imported':''}">${imported?'已导入':started?'已开始 · 导入后封盘':'未开始'}</span></div><small>${esc(clockTime(m.starts_at))} · ${esc(m.stage)} · ${esc(m.format)}</small></div></label>`;}).join('')}</div><p class="sync-footnote">${icon('info',12)}导入不包含赔率或预测记录。已导入对局会自动去重；已开始的比赛只能查看和记录赛果。</p>`;
+  const items=data.matches, canChoose=items.length;
+  return `${data.warnings?.length?`<div class="sync-warnings">${data.warnings.map(w=>`<p>${icon('info',12)}${esc(w)}</p>`).join('')}</div>`:''}<div class="sync-result-heading"><strong>${esc(dayLabel(data.date))}<small>${items.length} 场官方对局</small></strong><label class="select-all"><input id="sync-all" type="checkbox" ${!canChoose?'disabled':''}>全选比赛</label></div><div class="sync-match-list">${items.map(m=>{const imported=Boolean(m.existing_id),started=officialStarted(m);return `<label class="sync-match-row ${imported?'already-imported':''}"><input type="checkbox" data-source-id="${esc(m.source_id)}" ${!imported&&!started?'checked':''}><div class="sync-match-details"><div><strong>${esc(m.team_a)} <span>vs</span> ${esc(m.team_b)}</strong><span class="sync-row-state ${imported?'imported':''}">${imported?'已导入 · 可更新':started?'已开始 · 导入后封盘':'未开始'}</span></div><small>${esc(clockTime(m.starts_at))} · ${esc(m.stage)} · ${esc(m.format)}</small></div></label>`;}).join('')}</div><p class="sync-footnote">${icon('info',12)}导入不包含赔率或预测记录。勾选已导入对局可更新官方时间和比分，保留人工赔率；已结算或取消的比赛跳过。已开始的比赛导入后封盘。</p>`;
 }
 async function fetchOfficialSchedule(date) {
   const current=modal;if(current?.kind!=='sync')return;

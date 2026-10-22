@@ -17,6 +17,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 JSC = Path('/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc')
+SUCCESS_MARKER = 'NEXUS_FRONTEND_TESTS_OK'
 
 
 def main():
@@ -41,7 +42,20 @@ def main():
     is_jsc = path.name.lower() == 'jsc'
     command = [str(path), str(test_file)] + (['--'] if is_jsc else []) + [str(app_file)]
     print('Running offline frontend checks with %s' % path.name, flush=True)
-    return subprocess.run(command, cwd=str(ROOT), timeout=30).returncode
+    try:
+        result = subprocess.run(command, cwd=str(ROOT), timeout=30, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, encoding='utf-8', errors='replace')
+    except subprocess.TimeoutExpired:
+        print('Offline frontend checks timed out after 30 seconds.')
+        return 1
+    print(result.stdout, end='')
+    if result.returncode:
+        return result.returncode
+    # macOS JavaScriptCore can return zero even when quit(1) was requested.
+    if SUCCESS_MARKER not in result.stdout.splitlines():
+        print('Offline frontend checks did not complete successfully.')
+        return 1
+    return 0
 
 
 if __name__ == '__main__':

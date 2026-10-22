@@ -4,7 +4,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '1.1.0'
+VERSION = '1.1.1'
 INCLUDE = ['server.py', 'lpl_schedule.py', 'public', 'tests', 'docs', 'scripts', '.github',
            '.gitignore', '.gitattributes', 'README.md', 'LICENSE', 'CONTRIBUTING.md',
            'CHANGELOG.md', '使用说明.md', '启动观赛搭子.command', '启动-Windows.bat']

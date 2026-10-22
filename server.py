@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / 'public'
 DATA = Path(os.environ.get('NEXUS_DATA_DIR', str(ROOT / 'data')))
 MAX_POINTS = 1_000_000
-APP_VERSION = '1.1.0'
+APP_VERSION = '1.1.1'
 
 
 class RuleError(Exception):
@@ -280,6 +280,9 @@ def apply_action(state, action, payload, schedule=None):
             has_bets = any(b['match_id'] == match['id'] for b in state['bets'])
             if has_bets and any(fields[k] != match[k] for k in ('team_a', 'team_b', 'format', 'stage')):
                 raise RuleError('已有预测时不能改变对阵、阶段和赛制，可修改开赛时间和后续赔率。')
+            # A postponement must not implicitly reopen an automatically closed market.
+            if not is_open(match):
+                match['status'] = 'locked'
             match.update(fields)
             match['demo'] = False
             add_log(state, '更新了 %s vs %s；已有预测仍按原赔率结算。' % (match['team_a'], match['team_b']))
@@ -379,6 +382,7 @@ def validate_backup(raw):
         if state['players'][0]['name'].casefold() == state['players'][1]['name'].casefold():
             raise RuleError('备份中的玩家昵称不能相同。')
         used = set()
+        source_ids = set()
         for match in raw['matches']:
             mid = label(match['id'], 80, '比赛编号')
             if mid in used or match['status'] not in ('open', 'locked', 'settled', 'void'):
@@ -388,9 +392,14 @@ def validate_backup(raw):
             if (match['status'] == 'settled' and winner not in ('a', 'b')) or (match['status'] != 'settled' and winner is not None):
                 raise RuleError('备份赛果与比赛状态不一致。')
             timestamp(match['created_at'])
+            metadata = source_metadata(match)
+            if metadata:
+                if metadata['source_id'] in source_ids:
+                    raise RuleError('备份中存在重复的官方比赛编号，已拒绝导入。')
+                source_ids.add(metadata['source_id'])
             state['matches'].append(dict(match_input(match), id=mid, status=match['status'],
                                          winner=winner, demo=bool(match.get('demo')), created_at=match['created_at'],
-                                         **source_metadata(match)))
+                                         **metadata))
         used = set()
         active = set()
         for bet in raw['bets']:
