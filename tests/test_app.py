@@ -137,6 +137,20 @@ class AccountingTests(unittest.TestCase):
         with self.assertRaises(n.RuleError):
             self.bet()
 
+    def test_rescheduling_an_automatically_closed_match_requires_explicit_reopen(self):
+        match = self.store.get()['matches'][0]
+        fields = {k: match[k] for k in ('team_a', 'team_b', 'stage', 'format', 'starts_at', 'odds_a', 'odds_b')}
+        fields['starts_at'] = '2020-01-01T00:00:00+00:00'
+        self.act('edit_match', match_id=match['id'], **fields)
+        fields['starts_at'] = '2099-10-24T20:00:00+08:00'
+        self.act('edit_match', match_id=match['id'], **fields)
+        with self.assertRaises(n.RuleError):
+            self.bet()
+        self.assertEqual(self.store.get()['matches'][0]['status'], 'locked')
+        self.act('toggle_lock', match_id=match['id'])
+        self.bet()
+        self.assertEqual(self.stats()['balance'], 900)
+
     def test_undo_and_correct_result(self):
         self.bet()
         self.act('settle_match', match_id=self.match_id, winner='a')
@@ -168,6 +182,20 @@ class AccountingTests(unittest.TestCase):
         self.bet()
         reopened = n.Store(self.temp.name)
         self.assertEqual(n.player_stats(reopened.get(),'p1')['balance'], 900)
+
+    def test_database_connection_closes_on_success_and_rollback(self):
+        with self.store.connect() as db:
+            db.execute('SELECT content FROM room WHERE id=1').fetchone()
+        with self.assertRaises(n.sqlite3.ProgrammingError):
+            db.execute('SELECT 1')
+        before = self.store.get()
+        with self.assertRaises(n.RuleError):
+            with self.store.connect() as failed:
+                failed.execute('UPDATE room SET content=? WHERE id=1', ('{}',))
+                raise n.RuleError('force rollback')
+        with self.assertRaises(n.sqlite3.ProgrammingError):
+            failed.execute('SELECT 1')
+        self.assertEqual(self.store.get(), before)
 
     def test_transaction_rollback_on_invalid_settings(self):
         old = self.store.get()
@@ -449,6 +477,16 @@ class ScheduleTests(unittest.TestCase):
             self.assertEqual(restored[key], before[key])
         self.assertIsNone(restored['odds_a'])
         self.assertIsNone(restored['odds_b'])
+
+    def test_duplicate_official_ids_in_backup_are_rejected_atomically(self):
+        self.sync()
+        backup = self.store.get()
+        duplicate = dict(backup['matches'][0], id='another-local-id')
+        backup['matches'].append(duplicate)
+        before = self.store.get()
+        with self.assertRaises(n.RuleError):
+            self.store.mutate('import_backup', {'backup': backup})
+        self.assertEqual(self.store.get(), before)
 
 
 if __name__ == '__main__':

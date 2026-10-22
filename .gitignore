@@ -1,0 +1,15 @@
+/data/
+/dist/
+/work/
+/outputs/
+__pycache__/
+*.py[cod]
+*.sqlite*
+*.db
+*backup*.json
+.DS_Store
+.env
+.env.*
+.venv/
+venv/
+node_modules/

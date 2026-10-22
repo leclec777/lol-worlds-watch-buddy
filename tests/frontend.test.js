@@ -89,7 +89,7 @@
     var tests = [], passed = 0;
     function test(name, body) { tests.push({name: name, body: body}); }
     function baseState() {
-      return {room: {name: 'Offline room', initial_points: 1000}, revision: 1,
+      return {room: {name: 'Offline room', initial_points: 1000}, revision: 1, server_time: new Date().toISOString(),
         players: [{id: 'p1', name: 'Me', favorite: 'T1', balance: 1000, assets: 1000, locked: 0, profit: 0, wins: 0, losses: 0, hit_rate: null},
           {id: 'p2', name: 'Friend', favorite: 'BLG', balance: 1000, assets: 1000, locked: 0, profit: 0, wins: 0, losses: 0, hit_rate: null}],
         matches: [], bets: [], activity: []};
@@ -164,7 +164,8 @@
     test('sync preview selects only new upcoming fixtures by default and escapes warnings', function () {
       var html = syncResultsHtml({date: '2026-10-24', warnings: ['<unconfirmed>'], matches: [fixture(),
         fixture({source_id: 'existing', existing_id: 'm2'}), fixture({source_id: 'past', starts_at: '2020-01-01T00:00:00+08:00'})]});
-      contains(html, 'data-source-id="source-1" checked'); contains(html, 'data-source-id="existing" disabled');
+      contains(html, 'data-source-id="source-1" checked'); absent(html, 'data-source-id="existing" disabled');
+      absent(html, 'data-source-id="existing" checked'); contains(html, '已导入 · 可更新');
       absent(html, 'data-source-id="past" checked'); contains(html, '&lt;unconfirmed&gt;');
     });
     test('sync form begins on the selected UTC+8 date with import disabled', function () {
@@ -246,6 +247,50 @@
       eq(capture.payload.source_ids.join(','), 'source-1', 'Existing fixture excluded');
     });
 
+    test('existing official matches can be selected for schedule updates', async function () {
+      syncDate('2026-10-24'); modal.loadedDate = '2026-10-24';
+      nodes.get('#sync-preview').innerHTML = syncResultsHtml({date: '2026-10-24', matches: [fixture({source_id: 'existing', existing_id: 'm1'})]});
+      eq(checkboxes[0].disabled, false, 'Existing match can be selected');
+      eq(checkboxes[0].checked, false, 'Updates require explicit selection');
+      checkboxes[0].checked = true; syncImportCount();
+      eq(nodes.get('#sync-import').disabled, false, 'Update can be submitted');
+      var capture, originalMutate = mutate;
+      mutate = async function (action, payload) { capture = {action: action, payload: payload}; return true; };
+      try {
+        var button = {dataset: {action: 'sync-import'}, closest: function () { return this; }};
+        await listeners.click[0]({target: button});
+      } finally { mutate = originalMutate; }
+      eq(capture.payload.source_ids.join(','), 'existing', 'Existing match submitted for update');
+    });
+    test('an old state response cannot overwrite a completed mutation', async function () {
+      var resolveResponse;
+      responses.push(function () { return new Promise(function (resolve) { resolveResponse = resolve; }); });
+      var pending = refresh();
+      var saved = baseState(); saved.revision = 2; saved.players[0].balance = 900;
+      queueReply(true, saved);
+      eq(await mutate('place_bet', {}, 'saved'), true, 'Mutation completed');
+      resolveResponse(reply(true, baseState())); await pending;
+      eq(state.revision, 2, 'Saved revision retained'); eq(state.players[0].balance, 900, 'Saved balance retained');
+    });
+    test('state refreshes ignore out-of-order successes and failures', async function () {
+      for (var fail of [false, true]) {
+        var finishOld;
+        responses.push(function () { return new Promise(function (resolve, reject) { finishOld = fail ? reject : resolve; }); });
+        var pending = refresh();
+        var latest = baseState(); latest.revision = 3;
+        queueReply(true, latest); await refresh();
+        finishOld(fail ? new Error('old failure') : reply(true, baseState())); await pending;
+        eq(state.revision, 3, 'Newest revision retained'); eq(online, true, 'Old failure cannot mark a live service offline');
+      }
+    });
+    test('failed mutations still refresh the authoritative room state', async function () {
+      queueReply(false, {error: '赔率刚刚更新'});
+      var latest = baseState(); latest.revision = 4;
+      queueReply(true, latest);
+      eq(await mutate('place_bet', {}), false, 'Rejected mutation reported');
+      eq(state.revision, 4, 'State reconciled after error');
+    });
+
     for (var item of tests) {
       state = baseState(); selected = null; activeId = 'p1'; filter = 'all'; betFilter = 'all';
       scheduleDate = 'all'; searchTerm = ''; onlyFavorite = false; busy = false; serverOffset = 0;
@@ -255,10 +300,11 @@
       assert(responses.length === 0, 'Fixture response was not consumed by: ' + item.name);
     }
     output('\n' + passed + '/' + tests.length + ' offline frontend tests passed. No browser or network used.');
+    output('NEXUS_FRONTEND_TESTS_OK');
   };
   var result = eval(appSource + '\n(' + suite.toString() + ')();');
   result.catch(function (error) {
-    output(error.stack || String(error));
+    output(String(error) + '\n' + (error.stack || ''));
     if (isNode) process.exitCode = 1;
     else quit(1);
   });
