@@ -11,6 +11,7 @@ import sys
 import time
 import uuid
 import webbrowser
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -449,8 +450,14 @@ class Store:
             db.execute('CREATE TABLE IF NOT EXISTS room (id INTEGER PRIMARY KEY CHECK(id=1), content TEXT NOT NULL)')
             db.execute('INSERT OR IGNORE INTO room VALUES (1, ?)', (json.dumps(seed(), ensure_ascii=False),))
 
+    @contextmanager
     def connect(self):
-        return sqlite3.connect(str(self.path), timeout=15)
+        db = sqlite3.connect(str(self.path), timeout=15)
+        try:
+            with db:
+                yield db
+        finally:
+            db.close()
 
     def get(self):
         with self.connect() as db:

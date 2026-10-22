@@ -14,7 +14,7 @@ class OfficialSourceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         fixture = Path(__file__).resolve().parent / 'fixtures/lpl-confirmed-and-tbd.json'
-        cls.document = json.loads(fixture.read_text())
+        cls.document = json.loads(fixture.read_text(encoding='utf-8'))
 
     def setUp(self):
         self.doc = copy.deepcopy(self.document)

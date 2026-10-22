@@ -183,6 +183,20 @@ class AccountingTests(unittest.TestCase):
         reopened = n.Store(self.temp.name)
         self.assertEqual(n.player_stats(reopened.get(),'p1')['balance'], 900)
 
+    def test_database_connection_closes_on_success_and_rollback(self):
+        with self.store.connect() as db:
+            db.execute('SELECT content FROM room WHERE id=1').fetchone()
+        with self.assertRaises(n.sqlite3.ProgrammingError):
+            db.execute('SELECT 1')
+        before = self.store.get()
+        with self.assertRaises(n.RuleError):
+            with self.store.connect() as failed:
+                failed.execute('UPDATE room SET content=? WHERE id=1', ('{}',))
+                raise n.RuleError('force rollback')
+        with self.assertRaises(n.sqlite3.ProgrammingError):
+            failed.execute('SELECT 1')
+        self.assertEqual(self.store.get(), before)
+
     def test_transaction_rollback_on_invalid_settings(self):
         old = self.store.get()
         with self.assertRaises(n.RuleError):
