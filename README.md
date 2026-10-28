@@ -1,5 +1,7 @@
 # 观赛搭子｜LOL 世界赛好友积分竞猜 · LoL Worlds Watch Buddy
 
+**当前源码版本：1.2.0 · [下载最新发布包](https://github.com/leclec777/lol-worlds-watch-buddy/releases/latest)**
+
 **NEXUS PICKS · 观赛搭子**让你和朋友在英雄联盟（League of Legends / LOL）世界赛期间一起看比赛，为各自的主队应援，用没有现金价值的积分开展比赛预测和好友比拼。
 
 **LoL Worlds Pick’em for friends:** local-first League of Legends match predictions, official LPL schedule sync, custom odds & leaderboards.
