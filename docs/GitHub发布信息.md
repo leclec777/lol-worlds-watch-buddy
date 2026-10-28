@@ -1,52 +1,32 @@
 # GitHub 发布信息
 
-这是待发布的项目元数据和首个版本文案，不代表已经公开发布。
+当前源码版本为 **1.2.0**，新增按比赛结果留言的「赛后讨论」面板。
 
-## 仓库
+- [项目首页](https://github.com/leclec777/lol-worlds-watch-buddy)
+- [最新发布版本和下载包](https://github.com/leclec777/lol-worlds-watch-buddy/releases/latest)
+- 对应源码包：`lol-worlds-watch-buddy-v1.2.0.zip`
 
-- 仓库名：`lol-worlds-watch-buddy`
-- 可见性：Public
-- 许可证：MIT
-- 首个公开版本：`v1.1.0`
+## 源码和 Release
 
-## About / Description
+`main` 保存最新源码；GitHub 首页的 Releases / Latest 显示单独发布的版本。合并代码后，还需要生成对应版本的 Release 和下载包。
 
-LOL 世界赛观赛搭子：和好友支持主队，用积分竞猜比拼眼光。LoL Worlds Pick’em for friends — local-first League of Legends match predictions, official LPL schedule sync, custom odds & friendly leaderboards. Python · MIT.
+仓库现在通过「Publish source release」后台流程完成发布：代码合并到 `main` 且版本或发布配置有变化时，先运行测试、生成干净源码包，再创建对应版本的 Release。下载包上传成功后才公开发布并设为 Latest。
 
-## Topics
+此流程也可以在 GitHub Actions 中手动运行。已经公开发布的同版本下载包会保留；若发布中断留下草稿，再次运行会继续上传并完成发布。
 
-`lol`, `league-of-legends`, `lol-worlds`, `worlds`, `esports`, `lpl`, `pickem`, `predictions`, `watch-party`, `friends`, `leaderboard`, `local-first`, `python`, `open-source`, `chinese`
+## 准备下个版本
 
-GitHub Topics 使用英文小写标签，中文关键词通过仓库简介、README 标题和项目介绍呈现。以上标签与真实功能对应，不使用与项目无关的热门词。
+1. 同步更新 `server.py` 中的 `APP_VERSION` 和 `scripts/package.py` 中的 `VERSION`，格式为 `X.Y.Z`。
+2. 在 `CHANGELOG.md` 增加对应版本说明，更新 README 中的当前版本。
+3. 提交 PR，确认自动检查通过后合并到 `main`。
+4. 等待后台发布成功，核对 Releases / Latest 的版本及源码包。
 
-## 首个 Release 标题
+发布流程会检查应用版本、打包版本和更新说明是否匹配，避免将旧包作为新版发布。
 
-v1.1.0 · 观赛搭子 / LoL Worlds Watch Buddy
+## 下载和使用
 
-## Release 介绍
+在最新 Release 页面下载并解压对应的源码 ZIP。macOS 双击「启动观赛搭子.command」，Windows 双击「启动-Windows.bat」；其他系统运行 `python3 server.py --open`。需要 Python 3.8+，无需第三方依赖。
 
-世界赛，一个人看是比赛，和朋友一起看就是主场。
+现有数据库和旧备份可继续使用；讨论留言也包含在新备份中。私人数据库、导出备份和本机测试房间不会进入发布包。
 
-观赛搭子是一款本地运行的开源 LOL / 英雄联盟比赛积分预测工具。你和好朋友各自支持主队，在比赛前用虚拟积分预测输赢，赛后一起看排行榜、比眼光。
-
-### 本版功能
-
-- 通过 lpl.qq.com 官方赛程，按 UTC+8 日期预览并勾选导入比赛。
-- 赛程未公布或对阵待定时明确提示；没有比赛时不生成假对局。
-- 赔率完全由你们手动设置；下注时锁定赔率，后续修改不影响旧预测。
-- 双人切换、主队标记、比赛搜索、日期分组和状态筛选。
-- 开赛自动封盘，手动确认赛果后自动结算虚拟积分；取消比赛退款。
-- 双人排行榜、命中率、积分走势与 JSON 备份。
-- Python 3.8+，标准库零依赖，支持 macOS、Windows 与 Linux。
-
-### 下载和使用
-
-下载并解压 `lol-worlds-watch-buddy-v1.1.0.zip`。Mac 双击「启动观赛搭子.command」，Windows 双击「启动-Windows.bat」。其他系统运行 `python3 server.py --open`。
-
-当前版本支持同一台电脑上的两位玩家轮流使用，属于好友互信房间。没有充值、提现、现金奖励或远程多人账号功能。与 Riot Games / 腾讯官方无隶属关系。
-
-English: A local-first LoL Worlds Pick’em app for friends. Support your favorite team, make virtual-point match predictions, and enjoy a friendly rivalry with your watch buddy. Official LPL schedule import, user-defined odds, and private local data. MIT licensed.
-
-## 发布核验
-
-发布时应确认仓库首页可匿名访问、README 与许可证可见、源码完整、Release 包可下载。单独上传 ZIP 不视为完成源码开源。
+当前仍是同机双人互信房间，积分没有现金价值，不包含充值、提现或远程多人账号功能。

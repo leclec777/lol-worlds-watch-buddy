@@ -1,0 +1,63 @@
+name: Publish source release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - server.py
+      - scripts/package.py
+      - scripts/prepare_release.py
+      - .github/workflows/release.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - name: Validate backend and release tooling
+        run: python -m unittest discover -s tests -v
+      - name: Validate frontend
+        run: python scripts/test_frontend.py
+      - name: Build clean source archive
+        run: python scripts/package.py
+      - name: Prepare matching version and release notes
+        id: metadata
+        run: python scripts/prepare_release.py --output-dir "$RUNNER_TEMP/nexus-release"
+      - name: Publish tested source as Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.metadata.outputs.tag }}
+          RELEASE_ARCHIVE: ${{ steps.metadata.outputs.archive }}
+          RELEASE_NOTES: ${{ steps.metadata.outputs.notes_file }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if release_draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft'); then
+            if [ "$release_draft" = 'false' ]; then
+              echo "$RELEASE_TAG is already published; preserving its existing assets."
+              exit 0
+            fi
+          else
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --title "$RELEASE_TAG · 观赛搭子 / LoL Worlds Watch Buddy" --notes-file "$RELEASE_NOTES"
+          fi
+          gh release upload "$RELEASE_TAG" "$RELEASE_ARCHIVE" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
