@@ -92,7 +92,7 @@
       return {room: {name: 'Offline room', initial_points: 1000}, revision: 1, server_time: new Date().toISOString(),
         players: [{id: 'p1', name: 'Me', favorite: 'T1', balance: 1000, assets: 1000, locked: 0, profit: 0, wins: 0, losses: 0, hit_rate: null},
           {id: 'p2', name: 'Friend', favorite: 'BLG', balance: 1000, assets: 1000, locked: 0, profit: 0, wins: 0, losses: 0, hit_rate: null}],
-        matches: [], bets: [], activity: []};
+        matches: [], bets: [], comments: [], activity: []};
     }
     function fixture(overrides) {
       return Object.assign({id: 'm1', source_id: 'source-1', source: 'lpl.qq.com', source_status: 'upcoming',
@@ -291,9 +291,94 @@
       eq(state.revision, 4, 'State reconciled after error');
     });
 
+    function comment(overrides) {
+      return Object.assign({id:'c1',match_id:'m1',player_id:'p1',text:'最后一波团战很精彩。',
+        result:'a',created_at:'2026-10-28T12:00:00Z'},overrides||{});
+    }
+    function finished(overrides) {return fixture(Object.assign({status:'settled',winner:'a'},overrides||{}));}
+    test('discussion has a useful empty state until a result is confirmed', function () {
+      state.matches=[fixture()];
+      contains(renderDiscussion(),'第一场赛果');contains(renderDiscussion(),'go-manage');
+      absent(renderDiscussion(),'comment-form');
+    });
+    test('settled match cards and navigation expose their discussion', function () {
+      state.matches=[finished()];page='discussion';
+      contains(shell(),'data-page="discussion"');contains(shell(),'赛后讨论');
+      contains(renderMatch(state.matches[0]),'data-discuss-match="m1"');
+      contains(renderManage(),'data-discuss-match="m1"');
+      absent(renderMatch(fixture()),'data-discuss-match=');
+    });
+    test('comments display authors and escaped multiline plain text', function () {
+      state.matches=[finished()];
+      state.players[0].name='<img src=x>';state.comments=[comment({text:'<script>alert(1)</script>\n& 好看！'})];
+      var html=renderDiscussion();contains(html,'&lt;script&gt;');contains(html,'&lt;img src=x&gt;');
+      absent(html,'<script>alert');absent(html,'<img src=x>');contains(html,'\n&amp; 好看！');
+      contains(html,'留言时：T1 获胜');contains(html,'500');
+    });
+    test('only the active author sees their own withdraw control', function () {
+      state.matches=[finished()];state.comments=[comment(),comment({id:'c2',player_id:'p2'})];
+      var html=renderDiscussion();contains(html,'data-delete-comment="c1"');absent(html,'data-delete-comment="c2"');
+      activeId='p2';html=renderDiscussion();absent(html,'data-delete-comment="c1"');contains(html,'data-delete-comment="c2"');
+    });
+    test('result withdrawal pauses posting while preserving comment context', function () {
+      state.matches=[finished({status:'locked',winner:null})];state.comments=[comment()];
+      var html=renderDiscussion();contains(html,'赛果已撤销');contains(html,'留言时：T1 获胜');absent(html,'id="comment-form"');
+      state.matches[0].status='settled';state.matches[0].winner='b';
+      html=renderDiscussion();contains(html,'BLG 获胜');contains(html,'留言时：T1 获胜');contains(html,'id="comment-form"');
+    });
+    test('drafts are isolated by match and player and survive room refreshes', async function () {
+      state.matches=[finished(),finished({id:'m2'})];discussionMatchId='m1';page='discussion';
+      await listeners.input[0]({target:{id:'discussion-message',value:'还没发出的复盘'}});
+      var requestId=commentDraft().requestId;
+      activeId='p2';eq(commentDraft().text,'','Friend has a separate draft');
+      activeId='p1';discussionMatchId='m2';eq(commentDraft().text,'','Other match has a separate draft');
+      discussionMatchId='m1';var incoming=baseState();incoming.matches=state.matches;incoming.revision=2;
+      queueReply(true,incoming);await refresh();
+      eq(commentDraft().text,'还没发出的复盘','Draft survives incoming state');
+      eq(commentDraft().requestId,requestId,'Unchanged draft keeps its retry ID');
+      contains(renderDiscussion(),'还没发出的复盘');
+    });
+    test('posting uses the current player and clears only the submitted draft', async function () {
+      state.matches=[finished()];discussionMatchId='m1';activeId='p2';
+      commentDraft().text='我也觉得好看';var submitted=commentDraft().requestId,capture,original=mutate;
+      activeId='p1';commentDraft().text='另一个玩家的草稿';activeId='p2';
+      mutate=async function(action,payload){capture={action:action,payload:payload};return true;};
+      try{await listeners.submit[0]({preventDefault:function(){},target:{id:'comment-form',fields:{}}});}
+      finally{mutate=original;}
+      eq(capture.action,'add_comment','Comment action');eq(capture.payload.match_id,'m1','Selected match');
+      eq(capture.payload.player_id,'p2','Active author');eq(capture.payload.request_id,submitted,'Retry ID');
+      eq(commentDraft().text,'','Submitted draft cleared');activeId='p1';eq(commentDraft().text,'另一个玩家的草稿','Other draft retained');
+    });
+    test('failed posting retains draft and retry ID while edits get a fresh ID', async function () {
+      state.matches=[finished()];discussionMatchId='m1';commentDraft().text='保留我的文字';
+      var requestId=commentDraft().requestId,original=mutate;
+      mutate=async function(){return false;};
+      try{await listeners.submit[0]({preventDefault:function(){},target:{id:'comment-form',fields:{}}});}
+      finally{mutate=original;}
+      eq(commentDraft().text,'保留我的文字','Failed draft retained');eq(commentDraft().requestId,requestId,'Retry deduplicates');
+      await listeners.input[0]({target:{id:'discussion-message',value:'修改后的文字'}});
+      assert(commentDraft().requestId!==requestId,'Edited intent uses a fresh request ID');
+    });
+    test('empty comments cannot be submitted and withdraw confirms the correct author', async function () {
+      state.matches=[finished()];discussionMatchId='m1';commentDraft().text='  ';
+      var count=requests.length;
+      await listeners.submit[0]({preventDefault:function(){},target:{id:'comment-form',fields:{}}});
+      eq(requests.length,count,'Blank comment makes no request');
+      var button={dataset:{deleteComment:'c1'},closest:function(){return this;}};
+      await listeners.click[0]({target:button});
+      eq(modal.action,'delete_comment','Withdrawal confirmation');eq(modal.payload.player_id,'p1','Active author passed');
+      eq(modal.payload.comment_id,'c1','Correct comment passed');
+    });
+    test('resetting the room clears in-memory discussion drafts', async function () {
+      discussionMatchId='old-match';commentDraft().text='旧赛季草稿';queueReply(true,baseState());
+      await mutate('reset_season',{});
+      eq(commentDrafts.size,0,'Old room drafts removed');eq(discussionMatchId,null,'Old match selection cleared');
+    });
+
     for (var item of tests) {
       state = baseState(); selected = null; activeId = 'p1'; filter = 'all'; betFilter = 'all';
       scheduleDate = 'all'; searchTerm = ''; onlyFavorite = false; busy = false; serverOffset = 0;
+      page='lobby';discussionMatchId=null;commentDrafts.clear();
       closeModal(); checkboxes = []; responses = []; requests = []; document.activeElement = document.body;
       try { await item.body(); passed++; output('PASS ' + item.name); }
       catch (error) { throw new Error('FAIL ' + item.name + '\n' + (error.stack || error)); }

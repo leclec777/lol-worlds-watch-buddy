@@ -23,7 +23,9 @@ ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / 'public'
 DATA = Path(os.environ.get('NEXUS_DATA_DIR', str(ROOT / 'data')))
 MAX_POINTS = 1_000_000
-APP_VERSION = '1.1.1'
+MAX_COMMENTS = 2000
+MAX_MATCH_COMMENTS = 200
+APP_VERSION = '1.2.0'
 
 
 class RuleError(Exception):
@@ -84,7 +86,7 @@ def seed():
              'room': {'name': '我们的世界赛', 'initial_points': 1000},
              'players': [{'id': 'p1', 'name': '我', 'favorite': 'T1'},
                          {'id': 'p2', 'name': '好朋友', 'favorite': 'BLG'}],
-             'matches': [], 'bets': [], 'activity': [], 'requests': []}
+             'matches': [], 'bets': [], 'comments': [], 'activity': [], 'requests': []}
     add_log(state, '房间已就绪，每人获得 1,000 初始积分。同步官方赛程后，由你手动设置赔率。')
     return state
 
@@ -109,6 +111,7 @@ def player_stats(state, player_id):
 
 def public_state(state):
     result = copy.deepcopy(state)
+    result.setdefault('comments', [])
     result.pop('requests', None)
     result['server_time'] = now()
     result['app_version'] = APP_VERSION
@@ -200,7 +203,7 @@ def sync_into_state(state, payload, schedule):
             if match['status'] in ('settled', 'void'):
                 skipped += 1
                 continue
-            has_history = any(b['match_id'] == match['id'] for b in state['bets'])
+            has_history = any(b['match_id'] == match['id'] for b in state['bets'] + state.get('comments', []))
             if has_history and any(fields[k] != match[k] for k in ('team_a', 'team_b', 'format', 'stage')):
                 skipped += 1
                 continue
@@ -226,6 +229,7 @@ def sync_into_state(state, payload, schedule):
 def apply_action(state, action, payload, schedule=None):
     if not isinstance(payload, dict):
         raise RuleError('请求格式无效。')
+    state.setdefault('comments', [])
     if action == 'place_bet':
         request_id = label(payload.get('request_id'), 80, '请求编号')
         if request_id in state['requests']:
@@ -258,6 +262,28 @@ def apply_action(state, action, payload, schedule=None):
                 (player['name'], stake, match['team_' + side], odds / 100), 'bet')
     elif action == 'sync_schedule':
         return sync_into_state(state, payload, schedule)
+    elif action == 'add_comment':
+        request_id = 'comment:' + label(payload.get('request_id'), 80, '请求编号')
+        if request_id in state['requests']:
+            return
+        match = find(state['matches'], payload.get('match_id'), '比赛')
+        player = find(state['players'], payload.get('player_id'), '玩家')
+        if match['status'] not in ('settled', 'void'):
+            raise RuleError('请先确认比赛结果，再参与赛后讨论。赛果撤销期间暂停新增留言。')
+        text = label(payload.get('text'), 500, '留言')
+        if len(state['comments']) >= MAX_COMMENTS or sum(c['match_id'] == match['id'] for c in state['comments']) >= MAX_MATCH_COMMENTS:
+            raise RuleError('留言数量已达上限（每场 200 条、房间共 2,000 条）。请先备份，再整理自己的留言。')
+        state['comments'].append({'id': uid(), 'match_id': match['id'], 'player_id': player['id'],
+                                  'text': text, 'created_at': now(),
+                                  'result': match['winner'] if match['status'] == 'settled' else 'void'})
+        state['requests'].append(request_id)
+        state['requests'] = state['requests'][-5000:]
+    elif action == 'delete_comment':
+        player = find(state['players'], payload.get('player_id'), '玩家')
+        comment = find(state['comments'], payload.get('comment_id'), '留言')
+        if comment['player_id'] != player['id']:
+            raise RuleError('只能撤回当前玩家自己的留言。')
+        state['comments'].remove(comment)
     elif action == 'cancel_bet':
         bet = find(state['bets'], payload.get('bet_id'), '预测')
         match = find(state['matches'], bet['match_id'], '比赛')
@@ -278,9 +304,9 @@ def apply_action(state, action, payload, schedule=None):
             match = find(state['matches'], payload.get('match_id'), '比赛')
             if match['status'] in ('settled', 'void'):
                 raise RuleError('已结束的比赛不可编辑；如需更正赛果，请先撤销结算。')
-            has_bets = any(b['match_id'] == match['id'] for b in state['bets'])
-            if has_bets and any(fields[k] != match[k] for k in ('team_a', 'team_b', 'format', 'stage')):
-                raise RuleError('已有预测时不能改变对阵、阶段和赛制，可修改开赛时间和后续赔率。')
+            has_history = any(b['match_id'] == match['id'] for b in state['bets'] + state['comments'])
+            if has_history and any(fields[k] != match[k] for k in ('team_a', 'team_b', 'format', 'stage')):
+                raise RuleError('已有预测或讨论时不能改变对阵、阶段和赛制，可修改开赛时间和后续赔率。')
             # A postponement must not implicitly reopen an automatically closed market.
             if not is_open(match):
                 match['status'] = 'locked'
@@ -343,14 +369,14 @@ def apply_action(state, action, payload, schedule=None):
             raise RuleError('两位玩家请使用不同的昵称，方便辨认。')
         add_log(state, '房间与玩家信息已更新。')
     elif action == 'clear_examples':
-        removable = {m['id'] for m in state['matches'] if m['demo'] and not any(b['match_id'] == m['id'] for b in state['bets'])}
+        removable = {m['id'] for m in state['matches'] if m['demo'] and not any(b['match_id'] == m['id'] for b in state['bets'] + state['comments'])}
         state['matches'] = [m for m in state['matches'] if m['id'] not in removable]
-        add_log(state, '已移除 %s 场尚无预测的示例比赛。' % len(removable))
+        add_log(state, '已移除 %s 场尚无预测或讨论的示例比赛。' % len(removable))
     elif action == 'reset_season':
         if payload.get('confirmation') != 'RESET':
             raise RuleError('请输入 RESET 确认开启新赛季。')
         points = integer(payload.get('initial_points'), 1, MAX_POINTS, '初始积分')
-        state.update(matches=[], bets=[], activity=[], requests=[])
+        state.update(matches=[], bets=[], comments=[], activity=[], requests=[])
         state['room']['initial_points'] = points
         add_log(state, '新赛季开始，每人获得 %s 初始积分。' % points)
     elif action == 'import_backup':
@@ -372,7 +398,7 @@ def validate_backup(raw):
         state = {'version': 1, 'revision': 1, 'room': {
             'name': label(raw['room']['name'], 24, '房间名称'),
             'initial_points': integer(raw['room']['initial_points'], 1, MAX_POINTS, '初始积分')},
-            'players': [], 'matches': [], 'bets': [], 'activity': [], 'requests': []}
+            'players': [], 'matches': [], 'bets': [], 'comments': [], 'activity': [], 'requests': []}
         if len(raw['players']) != 2 or len(raw['matches']) > 1000 or len(raw['bets']) > 50000:
             raise RuleError('备份的玩家数量或记录数量无效。')
         for index, player in enumerate(raw['players']):
@@ -436,6 +462,24 @@ def validate_backup(raw):
         for player in state['players']:
             if player_stats(state, player['id'])['balance'] < 0:
                 raise RuleError('备份中有负积分余额，已拒绝导入。')
+        comments = raw.get('comments', [])
+        if not isinstance(comments, list) or len(comments) > MAX_COMMENTS:
+            raise RuleError('备份中的留言数量或格式无效。')
+        used, counts = set(), {}
+        for comment in comments:
+            cid = label(comment['id'], 80, '留言编号')
+            match = find(state['matches'], comment['match_id'], '留言对应的比赛')
+            find(state['players'], comment['player_id'], '留言玩家')
+            if cid in used or comment['result'] not in ('a', 'b', 'void'):
+                raise RuleError('备份中存在重复留言或无效的留言赛果。')
+            used.add(cid)
+            counts[match['id']] = counts.get(match['id'], 0) + 1
+            if counts[match['id']] > MAX_MATCH_COMMENTS:
+                raise RuleError('备份中的单场留言超过 200 条。')
+            timestamp(comment['created_at'])
+            state['comments'].append({'id': cid, 'match_id': match['id'], 'player_id': comment['player_id'],
+                                      'text': label(comment['text'], 500, '留言'),
+                                      'created_at': comment['created_at'], 'result': comment['result']})
         return state
     except (KeyError, TypeError, ValueError, AttributeError, RecursionError):
         raise RuleError('备份文件结构无效，本机数据未被修改。')
@@ -449,6 +493,10 @@ class Store:
         with self.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS room (id INTEGER PRIMARY KEY CHECK(id=1), content TEXT NOT NULL)')
             db.execute('INSERT OR IGNORE INTO room VALUES (1, ?)', (json.dumps(seed(), ensure_ascii=False),))
+            state = json.loads(db.execute('SELECT content FROM room WHERE id=1').fetchone()[0])
+            if 'comments' not in state:
+                state['comments'] = []
+                db.execute('UPDATE room SET content=? WHERE id=1', (json.dumps(state, ensure_ascii=False),))
 
     @contextmanager
     def connect(self):
@@ -477,7 +525,7 @@ class Store:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'NexusPicks/1.1'
+    server_version = 'NexusPicks/1.2'
 
     def log_message(self, fmt, *args):
         if args and str(args[1]) not in ('200', '304'):
